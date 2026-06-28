@@ -13,9 +13,11 @@ Usage (as a module):
             "lat": 28.5, "lon": 77.0, "day_of_year": 150,
             "tmax_lag1": 42.0, "tmin_lag1": 25.0,
             "rainfall_lag1": 0.0, "rainfall_7d": 2.5, "dtr": 12.0,
+            "soil_moisture_lag1": 0.25,
         },
-        temp_anomaly=2.0,      # +2 °C warming scenario
-        rain_multiplier=1.3,   # 30 % more rainfall
+        temp_anomaly=2.0,          # +2 °C warming scenario
+        rain_multiplier=1.3,       # 30 % more rainfall
+        moisture_multiplier=0.5,   # 50 % less soil moisture (drought)
     )
     print(prediction)
     # {'tmax': 43.1, 'tmin': 27.5, 'rainfall': 4.2}
@@ -55,6 +57,7 @@ FEATURE_COLS = [
     "rainfall_lag1",
     "rainfall_7d",
     "dtr",
+    "soil_moisture_lag1",
 ]
 
 
@@ -84,6 +87,7 @@ def run_climate_simulation(
     current_features: Dict[str, float],
     temp_anomaly: float = 0.0,
     rain_multiplier: float = 1.0,
+    moisture_multiplier: float = 1.0,
 ) -> Dict[str, float]:
     """
     Run a climate prediction with optional 'What-If' adjustments.
@@ -92,13 +96,17 @@ def run_climate_simulation(
     ----------
     current_features : dict
         Must contain keys: lat, lon, day_of_year, tmax_lag1, tmin_lag1,
-        rainfall_lag1, rainfall_7d, dtr.
+        rainfall_lag1, rainfall_7d, dtr, soil_moisture_lag1.
     temp_anomaly : float, optional
         Value (°C) added to tmax_lag1 and tmin_lag1 to simulate a warming
         or cooling scenario.  Default 0.0 (no change).
     rain_multiplier : float, optional
         Multiplicative factor applied to rainfall_lag1 and rainfall_7d
         to simulate wetter (>1) or drier (<1) scenarios.
+        Default 1.0 (no change).
+    moisture_multiplier : float, optional
+        Multiplicative factor applied to soil_moisture_lag1 to simulate
+        saturated (>1) or drought (<1) soil conditions.
         Default 1.0 (no change).
 
     Returns
@@ -116,6 +124,7 @@ def run_climate_simulation(
     features = dict(current_features)
 
     # ── 3. Apply 'What-If' scenario adjustments ──────────────────────
+    #   Step A: Apply the user's direct slider inputs first
     #   Temperature anomaly → shift lag temperatures
     features["tmax_lag1"] += temp_anomaly
     features["tmin_lag1"] += temp_anomaly
@@ -124,7 +133,31 @@ def run_climate_simulation(
     features["rainfall_lag1"] *= rain_multiplier
     features["rainfall_7d"]  *= rain_multiplier
 
-    #   Recalculate DTR from the adjusted lag temperatures
+    #   Soil moisture multiplier → scale lag soil moisture
+    features["soil_moisture_lag1"] *= moisture_multiplier
+
+    # ── 3b. Physics Coupling Layer ───────────────────────────────────
+    #   Apply coupled secondary effects AFTER the direct slider inputs.
+    #   These heuristic couplings make the variables interact realistically.
+
+    #   Rainfall Impact on Temperature (evaporative cooling):
+    #   For every 1.0x increase above 1.0, subtract 2.0 °C from temps.
+    #   If rainfall drops below 1.0, add to temps proportionally.
+    rain_delta = rain_multiplier - 1.0        # e.g. 1.3 → +0.3 ; 0.7 → -0.3
+    temp_coupling = -2.0 * rain_delta         # e.g. +0.3 → -0.6 ; -0.3 → +0.6
+    features["tmax_lag1"] += temp_coupling
+    features["tmin_lag1"] += temp_coupling
+
+    #   Rainfall Impact on Soil Moisture:
+    #   Wetter conditions increase soil saturation; drier conditions deplete it.
+    features["soil_moisture_lag1"] *= rain_multiplier
+
+    #   Temperature Impact on Soil Moisture (evaporation):
+    #   Higher temperatures accelerate moisture loss at 5% per °C anomaly.
+    features["soil_moisture_lag1"] -= temp_anomaly * 0.05
+    features["soil_moisture_lag1"] = max(0.0, features["soil_moisture_lag1"])
+
+    #   Recalculate DTR from the fully-coupled lag temperatures
     features["dtr"] = features["tmax_lag1"] - features["tmin_lag1"]
 
     # ── 4. Build a single-row DataFrame in the correct column order ──
@@ -158,6 +191,7 @@ if __name__ == "__main__":
         "rainfall_lag1": 0.0,
         "rainfall_7d": 2.5,
         "dtr": 15.0,
+        "soil_moisture_lag1": 0.15,
     }
 
     # ── Baseline prediction (no scenario adjustments) ────────────────
@@ -186,6 +220,15 @@ if __name__ == "__main__":
     print(f"  Predicted tmax     : {wetter['tmax']} °C")
     print(f"  Predicted tmin     : {wetter['tmin']} °C")
     print(f"  Predicted rainfall : {wetter['rainfall']} mm/day")
+
+    # ── What-If: Drought (50 % less soil moisture) ───────────────────
+    print(f"\n{'=' * 55}")
+    print("  SCENARIO  (50% less soil moisture — drought)")
+    print("=" * 55)
+    drought = run_climate_simulation(sample_features, moisture_multiplier=0.5)
+    print(f"  Predicted tmax     : {drought['tmax']} °C")
+    print(f"  Predicted tmin     : {drought['tmin']} °C")
+    print(f"  Predicted rainfall : {drought['rainfall']} mm/day")
 
     # ── What-If: Combined (+2 °C AND 50 % more rain) ────────────────
     print(f"\n{'=' * 55}")

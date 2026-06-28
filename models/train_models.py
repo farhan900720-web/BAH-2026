@@ -27,7 +27,7 @@ from sklearn.model_selection import train_test_split
 DATA_PATH = os.path.join("data", "features_master.csv")
 MODEL_DIR = os.path.join("models")
 
-# Feature columns used for prediction (8 features).
+# Feature columns used for prediction (9 features).
 FEATURE_COLS = [
     "lat",
     "lon",
@@ -37,6 +37,7 @@ FEATURE_COLS = [
     "rainfall_lag1",
     "rainfall_7d",
     "dtr",
+    "soil_moisture_lag1",
 ]
 
 # Target variables — one model will be trained per target.
