@@ -11,7 +11,11 @@ Usage:
 
 import copy
 import datetime
+import os
 from typing import Dict, List
+
+from dotenv import load_dotenv
+load_dotenv()
 
 import ee
 import folium
@@ -1262,7 +1266,9 @@ v_range = max(v_max - v_min, 0.001)          # avoid division by zero
 
 # ── Build Earth Engine FeatureCollection ──────────────────────────────
 try:
-    ee.Initialize(project='isro-digital-twin')
+    # Set the Earth Engine project ID from an environment variable.
+    # To run this locally, create a .env file or export it: EE_PROJECT_ID=your_project_id
+    ee.Initialize(project=os.environ.get('EE_PROJECT_ID'))
 except Exception:
     pass  # Already initialized
 
